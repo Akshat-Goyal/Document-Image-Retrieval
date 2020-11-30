@@ -67,41 +67,6 @@ def calc_area(a, b, c, epsilon=1e-8):
     return np.abs(np.linalg.det(mat) + epsilon) / 2
 
 
-def calc_invariant(points, invariant):
-    """
-    calculates mCf points for affine or cross-ratio invariance
-    """
-    m, r = points.shape[0], []
-    try:
-        if invariant == Invariants.AFFINE:
-            for mask in combinations(np.arange(m), 4):
-                p = points[list(mask)]
-                r.append(calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2]))
-        elif invariant == Invariants.CROSS_RATIO:
-            for mask in combinations(np.arange(m), 5):
-                p = points[list(mask)]
-                r.append(
-                    calc_area(p[0], p[1], p[2])
-                    * calc_area(p[0], p[3], p[4])
-                    / (calc_area(p[0], p[1], p[3]) * calc_area(p[0], p[2], p[4]))
-                )
-        return np.array(r)
-    except:
-        return np.array(r)
-
-
-def calc_index(r, K, size):
-    """
-    calculates hash index
-    """
-    ans, k = 0, 1
-    r = r.astype("int64") % size
-    for i in range(r.shape[0]):
-        ans = (ans + r[i] * k) % size
-        k = k * K % size
-    return ans
-
-
 def cart2pol(points):
     """
     cartesian coordinates to polar coordinates
@@ -204,7 +169,6 @@ def log_all_methods(log_entry=True, log_exit=True, ignore=[]):
     def decorate(cls):
         for attr in cls.__dict__:
             _func = getattr(cls, attr)
-            print(_func)
             if callable(_func) and attr not in ignore:
                 setattr(
                     cls, attr, log_call(_func, log_entry, log_exit),
