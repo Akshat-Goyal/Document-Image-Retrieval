@@ -2,6 +2,7 @@
 Image retrieval code
 """
 
+from functools import reduce
 import logging
 from itertools import combinations
 from pathlib import Path
@@ -29,9 +30,13 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
     this function needs to be at module level
     """
     npoints = nearest_points(feature_point, p, n)
+    ret = []
+
     for mask in combinations(np.arange(n), m):
         r = ImageRetriever.calc_invariant(npoints[list(mask)], invariant)
-        return p, r
+        ret.append((p, r))
+
+    return ret
 
 
 @log_all_methods(ignore=["register", "calc_invariant", "calc_index"])
@@ -135,11 +140,19 @@ class ImageRetriever:
         if n < 0 or m < 0:
             return []
 
+        flatten = lambda x, y: x + y
+
         if parallel:
             pool = Pool(8)
-            return pool.starmap(
-                parallelized_calc_invariant,
-                map(lambda p: (feature_point, p, n, m, self.invariant), feature_point),
+            return reduce(
+                flatten,
+                pool.starmap(
+                    parallelized_calc_invariant,
+                    map(
+                        lambda p: (feature_point, p, n, m, self.invariant),
+                        feature_point,
+                    ),
+                ),
             )
 
         features = []
@@ -147,7 +160,7 @@ class ImageRetriever:
             features.append(
                 parallelized_calc_invariant(feature_point, p, n, m, self.invariant)
             )
-        return features
+        return reduce(flatten, features)
 
     def register(self, doc_id, point_id, r):
         """
@@ -187,8 +200,10 @@ class ImageRetriever:
                     mpoints = np.roll(mpoints, 1, axis=0)
                     r = ImageRetriever.calc_invariant(mpoints, self.invariant)
                     hindex = ImageRetriever.calc_index(r, self.k, self.max_size)
+
                     if hindex not in self.hash_table:
                         continue
+
                     # voting
                     for item in self.hash_table[hindex]:
                         # condition 1
@@ -203,6 +218,7 @@ class ImageRetriever:
                             ):
                                 voting_table[item[0]][0].add(tp)
                                 voting_table[item[0]][1].add(ti)
+
         # doc_id with max voting
         doc_ids = []
         for key in voting_table:
