@@ -87,7 +87,7 @@ class ImageRetriever:
         img_blur = cv.GaussianBlur(img_bin, (k, k), 0)
 
         img_blur_bin = cv.adaptiveThreshold(
-            255 - img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+            img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
         )
 
         contours = cv.findContours(
