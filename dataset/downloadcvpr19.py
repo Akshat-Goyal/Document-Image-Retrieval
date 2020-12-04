@@ -2,6 +2,7 @@ import os
 import requests
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from rich.progress import track
 
 urls = [
     "https://openaccess.thecvf.com/CVPR2020.py?day=2020-06-16",
@@ -9,21 +10,22 @@ urls = [
     "https://openaccess.thecvf.com/CVPR2020.py?day=2020-06-18",
 ]
 
-# If there is no such folder, the script will create one automatically
 folder_location = "./papers"
+
 if not os.path.exists(folder_location):
     os.mkdir(folder_location)
 
 responses = [requests.get(url) for url in urls]
+dictonary = {}
 
 soups = [BeautifulSoup(response.text, "html.parser") for response in responses]
 links = []
-for soup in soups:
+for i,soup in enumerate(soups):
     for link in soup.select("a[href$='.pdf']"):
         links.append(link)
+        dictonary[link] = urls[i]
 
-for link in soup.select("a[href$='.pdf']"):
+for link in track(soup.select("a[href$='.pdf']")):
     filename = os.path.join(folder_location, link["href"].split("/")[-1])
-    print("Downloading: ", link)
     with open(filename, "wb") as f:
-        f.write(requests.get(urljoin(url, link["href"])).content)
+        f.write(requests.get(urljoin(dictonary[link], link["href"])).content)
