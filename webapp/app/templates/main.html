@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script src="/static/js/query.js" charset="utf-8"></script>
+<div class="container">
+
+    <!-- <div class="col-xl-6 m-4"> -->
+    <!--     <div class="card"> -->
+    <!--         <div class="card-body ht-tm-superspecialcardcheat"> -->
+
+    <!--             <h6 class="card-title">Put the image to be queried in static/image folder and type the filename of the image</h6> -->
+
+    <!--             <div class="ht-tm-codeblock ht-tm-btn-replaceable"> -->
+    <!--                 <div class="form-inline ht-tm-element"> -->
+    <!--                     <div class="input-group mb-2 mr-sm-2 mb-sm-0"> -->
+    <!--                         <input type="text" class="form-control" id="iname" placeholder="Filename"> -->
+    <!--                     </div> -->
+
+    <!--                     <button class="btn btn-primary" onclick=submit1() >Submit</button> -->
+    <!--                 </div> -->
+    <!--             </div> -->
+
+    <!--         </div> -->
+    <!--     </div> -->
+    <!-- </div> -->
+
+    <div class="col-xl-6 m-4">
+        <div class="card">
+            <div class="card-body ht-tm-superspecialcardcheat">
+
+                <h6 class="card-title">Upload File</h6>
+
+                <div class="ht-tm-codeblock ht-tm-btn-replaceable">
+                    <div class="form-inline ht-tm-element">
+                        <div class="input-group mb-2 mr-sm-2 mb-sm-0">
+                            <input type="file" onchange="readURL(this);" class="form-control" id="fileupload" placeholder="File">
+                        </div>
+
+                        <button class="btn btn-primary" onclick=submit2() >Submit</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+<div class="jumbotron">
+    <h1 class="display-3">Input</h1>
+    <img id="inpimg" src="#"  height="500px" width="250px"/>
+</div>
+
+<div class="jumbotron">
+    <h1 class="display-3">Output</h1>
+    <div id="imgdiv" class="jumbotron">
+
+    </div>
+</div>
+
+</div>
+
+{% endblock content%}
