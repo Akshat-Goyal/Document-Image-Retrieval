@@ -26,7 +26,6 @@ for i,soup in enumerate(soups):
         dictonary[link] = urls[i]
 
 for link in track(links):
-    print(link)
     filename = os.path.join(folder_location, link["href"].split("/")[-1])
     with open(filename, "wb") as f:
         f.write(requests.get(urljoin(dictonary[link], link["href"])).content)
