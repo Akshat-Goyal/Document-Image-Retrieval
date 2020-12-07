@@ -6,11 +6,12 @@ from functools import reduce
 import logging
 from itertools import combinations
 from pathlib import Path
-from multiprocessing import Pool, Manager
-from threading import Lock
+from multiprocessing import Pool
 
 import cv2 as cv
 import numpy as np
+import pickle
+from os.path import exists
 from rich.logging import RichHandler
 
 from image_retrieval.helpers import (
@@ -67,7 +68,7 @@ def parallelized_query(self, feature_point, p, n, m):
     return ret
 
 
-@log_all_methods(ignore=["register", "calc_invariant", "calc_index", "calc_votes"])
+@log_all_methods(ignore=["register", "calc_invariant", "calc_index", "calc_votes", "load_hash_table", "save_hash_table"])
 class ImageRetriever:
     def __init__(self, max_size=128 * 1e6, invariant=Invariants.AFFINE, n=7, m=6, k=25):
         self.hash_table = {}
@@ -169,7 +170,7 @@ class ImageRetriever:
         if n < 0 or m < 0:
             return []
 
-        def flatten(x, y): return x + y
+        flatten = lambda x, y: x + y
 
         if parallel:
             pool = Pool(8)
@@ -204,6 +205,28 @@ class ImageRetriever:
             self.hash_table[hindex] = [[doc_id, point_id, r]]
 
         return hindex
+
+    def save_hash_table(self, filename="hash_table.pickle"):
+        """
+        saves hash table to file
+        """
+        with open(filename, 'wb') as f:
+            pickle.dump(self.hash_table, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_hash_table(self, filename="hash_table.pickle"):
+        """
+        loads hash table
+        """
+        if not exists(filename):
+            files = list(Path(IMG_DIR).glob("*.png"))
+            for idx, f in enumerate(files):
+                feats = self.calculate_features(imread(f.name, mode=0))
+                for feat in feats:
+                    self.register(idx, *feat)
+            self.save_hash_table(filename)
+        else:
+            with open(filename, 'rb') as f:
+                self.hash_table = pickle.load(f)
 
     @staticmethod
     def calc_votes(votes):
@@ -244,7 +267,7 @@ class ImageRetriever:
         if n < 0 or m < 0:
             return []
 
-        def flatten(x, y): return x + y
+        flatten = lambda x, y: x + y
 
         if parallel:
             pool = Pool(8)
@@ -278,10 +301,11 @@ if __name__ == "__main__":
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    for idx, f in enumerate(files):
-        feats = ir.calculate_features(imread(f.name, mode=0))
+    ir.load_hash_table()
+    # for idx, f in enumerate(files):
+    #     feats = ir.calculate_features(imread(f.name, mode=0))
 
-        for feat in feats:
-            ir.register(idx, *feat)
+    #     for feat in feats:
+    #         ir.register(idx, *feat)
 
     print(ir.query(imread(files[0].name, mode=0)))
