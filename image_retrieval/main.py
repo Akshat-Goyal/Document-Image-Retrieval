@@ -10,6 +10,8 @@ from multiprocessing import Pool
 
 import cv2 as cv
 import numpy as np
+import pickle
+from os.path import exists
 from rich.logging import RichHandler
 
 from image_retrieval.helpers import (
@@ -38,8 +40,35 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
 
     return ret
 
+def parallelized_query(self, feature_point, p, n, m):
+    """
+    parallelized query
+    """
+    npoints = nearest_points(feature_point, p, n)
+    ret = []
 
-@log_all_methods(ignore=["register", "calc_invariant", "calc_index"])
+    for mask in combinations(np.arange(n), m):
+        # m points from n
+        mpoints = npoints[list(mask)]
+        for _ in range(m):
+            # cyclic permutation of m points
+            mpoints = np.roll(mpoints, 1, axis=0)
+
+            r = ImageRetriever.calc_invariant(mpoints, self.invariant)
+            hindex = ImageRetriever.calc_index(r, self.k, self.max_size)
+
+            if hindex not in self.hash_table:
+                continue
+            # voting
+            for item in self.hash_table[hindex]:
+                # condition 1
+                if np.allclose(r, item[2]):
+                    ret.append([item[0], tuple(p), tuple(item[1])])
+
+    return ret
+
+
+@log_all_methods(ignore=["register", "calc_invariant", "calc_index", "calc_votes", "load_hash_table", "save_hash_table"])
 class ImageRetriever:
     def __init__(self, max_size=128 * 1e6, invariant=Invariants.AFFINE, n=7, m=6, k=25):
         self.hash_table = {}
@@ -115,7 +144,8 @@ class ImageRetriever:
             if invariant == Invariants.AFFINE:
                 for mask in combinations(np.arange(m), 4):
                     p = points[list(mask)]
-                    r.append(calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2]))
+                    r.append(calc_area(p[0], p[2], p[3]) /
+                             calc_area(p[0], p[1], p[2]))
             elif invariant == Invariants.CROSS_RATIO:
                 for mask in combinations(np.arange(m), 5):
                     p = points[list(mask)]
@@ -158,7 +188,8 @@ class ImageRetriever:
         features = []
         for p in feature_point:
             features.append(
-                parallelized_calc_invariant(feature_point, p, n, m, self.invariant)
+                parallelized_calc_invariant(
+                    feature_point, p, n, m, self.invariant)
             )
         return reduce(flatten, features)
 
@@ -175,7 +206,56 @@ class ImageRetriever:
 
         return hindex
 
-    def query(self, img):
+    def save_hash_table(self, filename="hash_table.pickle"):
+        """
+        saves hash table to file
+        """
+        with open(filename, 'wb') as f:
+            pickle.dump(self.hash_table, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_hash_table(self, filename="hash_table.pickle"):
+        """
+        loads hash table
+        """
+        if not exists(filename):
+            files = list(Path(IMG_DIR).glob("*.png"))
+            for idx, f in enumerate(files):
+                feats = self.calculate_features(imread(f.name, mode=0))
+                for feat in feats:
+                    self.register(idx, *feat)
+            self.save_hash_table(filename)
+        else:
+            with open(filename, 'rb') as f:
+                self.hash_table = pickle.load(f)
+
+    @staticmethod
+    def calc_votes(votes):
+        """
+        adds votes to the voting table which satisfies condition 2 and 3
+        returns array of pairs of votes, doc_id sorted by votes in descending order
+        """
+        voting_table = {}
+
+        for vote in votes:
+            # condition 2 and 3
+            if vote[0] not in voting_table:
+                voting_table[vote[0]] = [set([vote[1]]), set([vote[2]])]
+            elif (
+                vote[1] not in voting_table[vote[0]][0]
+                and vote[2] not in voting_table[vote[0]][1]
+            ):
+                voting_table[vote[0]][0].add(vote[1])
+                voting_table[vote[0]][1].add(vote[2])
+
+        # doc ids with votes
+        doc_ids = []
+        for key in voting_table:
+            vote = len(voting_table[key][0])
+            doc_ids.append((vote, key))
+        doc_ids.sort(reverse=True)
+        return np.array(doc_ids)
+
+    def query(self, img, parallel=True):
         """
         query the db for document images similar to the one provided
         """
@@ -187,61 +267,45 @@ class ImageRetriever:
         if n < 0 or m < 0:
             return []
 
-        voting_table = {}
-        # for each point p in feature_point
-        for p in feature_point:
-            # n nearest points in clockwise order
-            npoints = nearest_points(feature_point, p, n)
-            for mask in combinations(np.arange(n), m):
-                # m points from n
-                mpoints = npoints[list(mask)]
-                for _ in range(m):
-                    # cyclic permutation of m points
-                    mpoints = np.roll(mpoints, 1, axis=0)
-                    r = ImageRetriever.calc_invariant(mpoints, self.invariant)
-                    hindex = ImageRetriever.calc_index(r, self.k, self.max_size)
+        flatten = lambda x, y: x + y
 
-                    if hindex not in self.hash_table:
-                        continue
+        if parallel:
+            pool = Pool(8)
+            votes = reduce(
+                flatten,
+                pool.starmap(
+                    parallelized_query,
+                    map(
+                        lambda p: (self, feature_point, p, n, m),
+                        feature_point,
+                    ),
+                ),
+            )
+        else:
+            votes = []
+            for p in feature_point:
+                votes.append(parallelized_query(self, feature_point, p, n, m))
+            votes = reduce(flatten, votes)
 
-                    # voting
-                    for item in self.hash_table[hindex]:
-                        # condition 1
-                        if np.allclose(r, item[2]):
-                            tp, ti = tuple(p), tuple(item[1])
-                            # condition 2 and 3
-                            if item[0] not in voting_table:
-                                voting_table[item[0]] = [set([tp]), set([ti])]
-                            elif (
-                                tp not in voting_table[item[0]][0]
-                                and ti not in voting_table[item[0]][1]
-                            ):
-                                voting_table[item[0]][0].add(tp)
-                                voting_table[item[0]][1].add(ti)
-
-        # doc_id with max voting
-        doc_ids = []
-        for key in voting_table:
-            vote = len(voting_table[key][0])
-            doc_ids.append((vote, key))
-        doc_ids.sort(reverse=True)
-        return np.array(doc_ids)
+        return ImageRetriever.calc_votes(votes)
 
 
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(message)s",
-        handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
+        handlers=[RichHandler(rich_tracebacks=True,
+                              show_time=False, show_path=False)],
     )
 
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    for idx, f in enumerate(files):
-        feats = ir.calculate_features(imread(f.name, mode=0))
+    ir.load_hash_table()
+    # for idx, f in enumerate(files):
+    #     feats = ir.calculate_features(imread(f.name, mode=0))
 
-        for feat in feats:
-            ir.register(idx, *feat)
+    #     for feat in feats:
+    #         ir.register(idx, *feat)
 
     print(ir.query(imread(files[0].name, mode=0)))
