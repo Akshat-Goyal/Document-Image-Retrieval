@@ -5,13 +5,13 @@ Image retrieval code
 from functools import reduce
 import logging
 from itertools import combinations
+from os.path import exists
+import pickle
 from pathlib import Path
-from multiprocessing import Pool
+from multiprocessing import Manager, cpu_count, Pool
 
 import cv2 as cv
 import numpy as np
-import pickle
-from os.path import exists
 from rich.logging import RichHandler
 
 from image_retrieval.helpers import (
@@ -40,43 +40,63 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
 
     return ret
 
-def parallelized_query(self, feature_point, p, n, m):
+
+def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_size):
     """
     parallelized query
     """
-    npoints = nearest_points(feature_point, p, n)
     ret = []
 
-    for mask in combinations(np.arange(n), m):
-        # m points from n
-        mpoints = npoints[list(mask)]
-        for _ in range(m):
-            # cyclic permutation of m points
-            mpoints = np.roll(mpoints, 1, axis=0)
+    for p in ps:
+        npoints = nearest_points(feature_point, p, n)
 
-            r = ImageRetriever.calc_invariant(mpoints, self.invariant)
-            hindex = ImageRetriever.calc_index(r, self.k, self.max_size)
+        for mask in combinations(np.arange(n), m):
+            # m points from n
+            mpoints = npoints[list(mask)]
+            for _ in range(m):
+                # cyclic permutation of m points
+                mpoints = np.roll(mpoints, 1, axis=0)
 
-            if hindex not in self.hash_table:
-                continue
-            # voting
-            for item in self.hash_table[hindex]:
-                # condition 1
-                if np.allclose(r, item[2]):
-                    ret.append([item[0], tuple(p), tuple(item[1])])
+                r = ImageRetriever.calc_invariant(mpoints, invariant)
+                hindex = ImageRetriever.calc_index(r, k, max_size)
+
+                if hindex not in hash_table:
+                    continue
+                # voting
+                for item in hash_table[hindex]:
+                    # condition 1
+                    if np.allclose(r, item[2]):
+                        ret.append([item[0], tuple(p), tuple(item[1])])
 
     return ret
 
 
-@log_all_methods(ignore=["register", "calc_invariant", "calc_index", "calc_votes", "load_hash_table", "save_hash_table"])
+@log_all_methods(
+    ignore=[
+        "register",
+        "calc_invariant",
+        "calc_index",
+        "calc_votes",
+    ]
+)
 class ImageRetriever:
-    def __init__(self, max_size=128 * 1e6, invariant=Invariants.AFFINE, n=7, m=6, k=25):
-        self.hash_table = {}
+    def __init__(
+        self,
+        max_size=128 * 1e6,
+        invariant=Invariants.AFFINE,
+        n=7,
+        m=6,
+        k=25,
+        parallel_count=cpu_count(),
+    ):
+        self.manager = Manager()
+        self.hash_table = self.manager.dict()
         self.max_size = max_size
         self.invariant = invariant
         self.n = n
         self.m = m
         self.k = k
+        self.parallel_count = parallel_count
 
     @staticmethod
     def calc_index(r, K, size):
@@ -144,8 +164,7 @@ class ImageRetriever:
             if invariant == Invariants.AFFINE:
                 for mask in combinations(np.arange(m), 4):
                     p = points[list(mask)]
-                    r.append(calc_area(p[0], p[2], p[3]) /
-                             calc_area(p[0], p[1], p[2]))
+                    r.append(calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2]))
             elif invariant == Invariants.CROSS_RATIO:
                 for mask in combinations(np.arange(m), 5):
                     p = points[list(mask)]
@@ -173,7 +192,7 @@ class ImageRetriever:
         flatten = lambda x, y: x + y
 
         if parallel:
-            pool = Pool(8)
+            pool = Pool(self.parallel_count)
             return reduce(
                 flatten,
                 pool.starmap(
@@ -188,8 +207,7 @@ class ImageRetriever:
         features = []
         for p in feature_point:
             features.append(
-                parallelized_calc_invariant(
-                    feature_point, p, n, m, self.invariant)
+                parallelized_calc_invariant(feature_point, p, n, m, self.invariant)
             )
         return reduce(flatten, features)
 
@@ -210,7 +228,7 @@ class ImageRetriever:
         """
         saves hash table to file
         """
-        with open(filename, 'wb') as f:
+        with open(filename, "wb") as f:
             pickle.dump(self.hash_table, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load_hash_table(self, filename="hash_table.pickle"):
@@ -225,7 +243,7 @@ class ImageRetriever:
                     self.register(idx, *feat)
             self.save_hash_table(filename)
         else:
-            with open(filename, 'rb') as f:
+            with open(filename, "rb") as f:
                 self.hash_table = pickle.load(f)
 
     @staticmethod
@@ -270,21 +288,42 @@ class ImageRetriever:
         flatten = lambda x, y: x + y
 
         if parallel:
-            pool = Pool(8)
+            ps = np.array_split(feature_point, self.parallel_count)
+            args = []
+            for i in range(self.parallel_count):
+                args.append(
+                    (
+                        self.hash_table,
+                        feature_point,
+                        ps[i],
+                        n,
+                        m,
+                        self.k,
+                        self.invariant,
+                        self.max_size,
+                    )
+                )
+
+            pool = self.manager.Pool(self.parallel_count)
             votes = reduce(
                 flatten,
-                pool.starmap(
-                    parallelized_query,
-                    map(
-                        lambda p: (self, feature_point, p, n, m),
-                        feature_point,
-                    ),
-                ),
+                pool.starmap(parallelized_query, args),
             )
         else:
             votes = []
             for p in feature_point:
-                votes.append(parallelized_query(self, feature_point, p, n, m))
+                votes.append(
+                    parallelized_query(
+                        self.hash_table,
+                        feature_point,
+                        p,
+                        n,
+                        m,
+                        self.k,
+                        self.invariant,
+                        self.max_size,
+                    )
+                )
             votes = reduce(flatten, votes)
 
         return ImageRetriever.calc_votes(votes)
@@ -294,8 +333,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(message)s",
-        handlers=[RichHandler(rich_tracebacks=True,
-                              show_time=False, show_path=False)],
+        handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
     )
 
     ir = ImageRetriever()
