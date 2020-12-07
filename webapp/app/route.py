@@ -1,6 +1,7 @@
 import os
 import sys
 from os.path import join, dirname, realpath
+from pathlib import Path
 from app import app
 from flask import render_template, request, jsonify
 import numpy as np
@@ -16,6 +17,7 @@ sys.path.insert(
 )
 
 from image_retrieval.main import ImageRetriever
+from image_retrieval.config import IMG_DIR
 
 ir = ImageRetriever()
 ir.load_hash_table(filename='../hash_table.pickle')
@@ -41,8 +43,10 @@ def searchUpload():
     ret = ir.query(img)
     images = []
     votes = []
+    files = list(Path(IMG_DIR).glob("*.png"))
     for i in ret:
-        images.append(i[1])
+        images.append(files[i[1]].name)
+        votes.append(str(i[0]))
 
     if img is None:
         print("Error, couldn't open file")
@@ -51,7 +55,7 @@ def searchUpload():
     print(f"Received file. Dimen: {img.shape}")
 
     ret = jsonify(
-        images=list(WEBAPP_LABELS[np.array(indices)][0]),
-        distances=distances[0].tolist(),
+        images=list(images),
+        votes=list(votes),
     )
     return ret

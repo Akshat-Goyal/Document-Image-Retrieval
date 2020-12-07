@@ -13,7 +13,7 @@ function showIMG(data) {
         }
 
         var image = " <img src=\"/static/image/".concat(data.images[i], "\" height=\"500px\" width=\"250px\"> ");
-        var col = '<div class="column m-4"/> ' + image + "<br> <p>" + data.images[i] + "  <br/> dist:" + data.distances[i] + "</p>" +' <div/>'
+        var col = '<div class="column m-4"/> ' + image + "<br> <p>" + data.images[i] + "  <br/> votes:" + data.votes[i] + "</p>" +' <div/>'
         row.innerHTML = row.innerHTML +  col;
     }
 
