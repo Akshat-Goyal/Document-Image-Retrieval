@@ -64,7 +64,7 @@ def calc_area(a, b, c, epsilon=1e-8):
     calculates area given 3 2d points
     """
     mat = np.array([[a[0], a[1], 1], [b[0], b[1], 1], [c[0], c[1], 1]])
-    return np.abs(np.linalg.det(mat) + epsilon) / 2
+    return (np.abs(np.linalg.det(mat)) + epsilon) / 2
 
 
 def cart2pol(points):
