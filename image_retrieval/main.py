@@ -316,7 +316,7 @@ class ImageRetriever:
                     parallelized_query(
                         self.hash_table,
                         feature_point,
-                        p,
+                        np.array([p]),
                         n,
                         m,
                         self.k,
