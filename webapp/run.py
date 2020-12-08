@@ -1,4 +1,6 @@
-#!/bin/env python3
-from app import app
+from webapp import app
+from webapp.app.route import routes
+
+app.register_blueprint(routes)
 
 app.run(debug=True)

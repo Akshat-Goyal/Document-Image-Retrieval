@@ -1,35 +1,29 @@
-import os
-import sys
-from os.path import join, dirname, realpath
-from pathlib import Path
-from app import app
-from flask import render_template, request, jsonify
-import numpy as np
-import pickle
-from PIL import Image
 import io
+from pathlib import Path
+
 import cv2
 import numpy as np
+from flask import jsonify, render_template, request, Blueprint, send_from_directory
+from PIL import Image
 
-sys.path.insert(
-    0,
-    realpath(os.path.join(dirname(realpath(__file__)), "../../")),
-)
-
-from image_retrieval.main import ImageRetriever
 from image_retrieval.config import IMG_DIR
+from image_retrieval.main import ImageRetriever
 
 ir = ImageRetriever()
-ir.load_hash_table(filename='../hash_table.pickle')
+ir.load_hash_table(filename="hash_table.pickle")
 
-@app.route("/")
+routes = Blueprint("routes", __name__)
+
+
+@routes.route("/")
 def root():
     """
     Main page
     """
     return render_template("main.html")
 
-@app.route("/searchUpload", methods=["POST"])
+
+@routes.route("/searchUpload", methods=["POST"])
 def searchUpload():
     """
     Queries for nearest neighbors
@@ -59,3 +53,8 @@ def searchUpload():
         votes=list(votes),
     )
     return ret
+
+
+@routes.route("/static/image/<path:filename>")
+def static_images(filename):
+    return send_from_directory(IMG_DIR, filename)
