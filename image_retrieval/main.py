@@ -229,7 +229,7 @@ class ImageRetriever:
         saves hash table to file
         """
         with open(filename, "wb") as f:
-            pickle.dump(self.hash_table, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(dict(self.hash_table), f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load_hash_table(self, filename="hash_table.pickle"):
         """
@@ -244,7 +244,7 @@ class ImageRetriever:
             self.save_hash_table(filename)
         else:
             with open(filename, "rb") as f:
-                self.hash_table = pickle.load(f)
+                self.hash_table = self.manager.dict(pickle.load(f))
 
     @staticmethod
     def calc_votes(votes):
