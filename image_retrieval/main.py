@@ -133,6 +133,7 @@ class ImageRetriever:
         # make k odd
         k += k % 2 == 0
 
+        img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
         img_blur = cv.GaussianBlur(img_bin, (k, k), 0)
 
         img_blur_bin = cv.adaptiveThreshold(
