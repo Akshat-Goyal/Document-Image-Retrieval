@@ -83,7 +83,7 @@ class ImageRetriever:
     def __init__(
         self,
         max_size=128 * 1e6,
-        invariant=Invariants.AFFINE,
+        invariant=Invariants.CROSS_RATIO,
         n=7,
         m=6,
         k=25,
