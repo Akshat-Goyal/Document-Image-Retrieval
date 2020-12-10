@@ -113,38 +113,23 @@ class ImageRetriever:
         return ans
 
     @staticmethod
-    def calculate_feature_point(img: np.ndarray):
+    def calculate_feature_point(img: np.ndarray, k=5):
         """
         Calculates features for the given image
         """
         img = img.copy()
 
-        # step 1: adaptive thresholding of the input image
         img_bin = cv.adaptiveThreshold(
             img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
         )
 
-        # step 2: Gaussian filtering with square root of mode of areas of connected components
-        _, labels = cv.connectedComponents(255 - img_bin)
-        _, areas = np.unique(labels, return_counts=True)
-        areas, cnt = np.unique(areas, return_counts=True)
-
-        k = int(np.sqrt(areas[np.argmax(cnt)]))
-        # make k odd
-        k += k % 2 == 0
-
         img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
-        img_blur = cv.GaussianBlur(img_bin, (k, k), 0)
 
-        img_blur_bin = cv.adaptiveThreshold(
-            img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+        contours, _ = cv.findContours(
+            255 - img_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
         )
 
-        contours = cv.findContours(
-            255 - img_blur_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
-        )[0]
         centroids = []
-
         for cnt in contours:
             M = cv.moments(cnt)
             cx, cy = 0, 0
@@ -341,10 +326,6 @@ if __name__ == "__main__":
     files = list(Path(IMG_DIR).glob("*.png"))
 
     ir.load_hash_table()
-    # for idx, f in enumerate(files):
-    #     feats = ir.calculate_features(imread(f.name, mode=0))
 
-    #     for feat in feats:
-    #         ir.register(idx, *feat)
-
-    print(ir.query(imread(files[0].name, mode=0)))
+    for f in files:
+        print(ir.query(imread(f.name, mode=0)[500:1500, 200:1000]))
