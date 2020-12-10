@@ -125,8 +125,8 @@ class ImageRetriever:
         )
 
         # step 2: Gaussian filtering with square root of mode of areas of connected components
-        _, labels = cv.connectedComponents(255 - img_bin)
-        _, areas = np.unique(labels, return_counts=True)
+        labels = cv.connectedComponents(255 - img_bin)[1]
+        areas = np.unique(labels, return_counts=True)[1]
         areas, cnt = np.unique(areas, return_counts=True)
 
         k = int(np.sqrt(areas[np.argmax(cnt)]))
@@ -139,20 +139,29 @@ class ImageRetriever:
             img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
         )
 
-        contours = cv.findContours(
-            255 - img_blur_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
-        )[0]
-        centroids = []
+        labels = cv.connectedComponents(255 - img_blur_bin)[1]
+        coordinates = np.argwhere(labels != -1)
+        labels = labels.ravel()
+        centroids = np.vstack([np.bincount(labels, weights=coordinates[:, 0]), np.bincount(labels, weights=coordinates[:, 1])])
+        cnt = np.bincount(labels)
+        cnt = np.where(cnt == 0, 1, cnt)
+        
+        return np.unique((centroids / cnt).astype('int64').T, axis=0)
 
-        for cnt in contours:
-            M = cv.moments(cnt)
-            cx, cy = 0, 0
-            if M["m00"] != 0:
-                cx = M["m01"] / M["m00"]
-                cy = M["m10"] / M["m00"]
-            centroids.append((cx, cy))
+        # contours = cv.findContours(
+        #     255 - img_blur_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
+        # )[0]
+        # centroids = []
 
-        return np.unique(np.array(centroids, dtype=np.int64), axis=0)
+        # for cnt in contours:
+        #     M = cv.moments(cnt)
+        #     cx, cy = 0, 0
+        #     if M["m00"] != 0:
+        #         cx = M["m01"] / M["m00"]
+        #         cy = M["m10"] / M["m00"]
+        #     centroids.append((cx, cy))
+
+        # return np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
     @staticmethod
     def calc_invariant(points, invariant):
