@@ -83,7 +83,7 @@ class ImageRetriever:
     def __init__(
         self,
         max_size=128 * 1e6,
-        invariant=Invariants.AFFINE,
+        invariant=Invariants.CROSS_RATIO,
         n=7,
         m=6,
         k=25,
@@ -113,55 +113,56 @@ class ImageRetriever:
         return ans
 
     @staticmethod
-    def calculate_feature_point(img: np.ndarray):
+    def calculate_feature_point(img: np.ndarray, k=5):
         """
         Calculates features for the given image
         """
         img = img.copy()
 
-        # step 1: adaptive thresholding of the input image
         img_bin = cv.adaptiveThreshold(
             img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
         )
 
-        # step 2: Gaussian filtering with square root of mode of areas of connected components
-        labels = cv.connectedComponents(255 - img_bin)[1]
-        areas = np.unique(labels, return_counts=True)[1]
-        areas, cnt = np.unique(areas, return_counts=True)
+        # # step 2: Gaussian filtering with square root of mode of areas of connected components
+        # labels = cv.connectedComponents(255 - img_bin)[1]
+        # areas = np.unique(labels, return_counts=True)[1]
+        # areas, cnt = np.unique(areas, return_counts=True)
 
-        k = int(np.sqrt(areas[np.argmax(cnt)]))
-        # make k odd
-        k += k % 2 == 0
+        # k = int(np.sqrt(areas[np.argmax(cnt)]))
+        # # make k odd
+        # k += k % 2 == 0
 
-        img_blur = cv.GaussianBlur(img_bin, (k, k), 0)
+        # img_bin = cv.GaussianBlur(img_bin, (k, k), 0)
 
-        img_blur_bin = cv.adaptiveThreshold(
-            img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+        # img_bin = cv.adaptiveThreshold(
+        #     img_bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+        # )
+
+        img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
+
+        # labels = cv.connectedComponents(255 - img_bin)[1]
+        # coordinates = np.argwhere(labels != -1)
+        # labels = labels.ravel()
+        # centroids = np.vstack([np.bincount(labels, weights=coordinates[:, 0]), np.bincount(labels, weights=coordinates[:, 1])])
+        # cnt = np.bincount(labels)
+        # cnt = np.where(cnt == 0, 1, cnt)
+        
+        # return np.unique((centroids / cnt).astype('int64').T, axis=0)
+
+        contours, _ = cv.findContours(
+            255 - img_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
         )
 
-        labels = cv.connectedComponents(255 - img_blur_bin)[1]
-        coordinates = np.argwhere(labels != -1)
-        labels = labels.ravel()
-        centroids = np.vstack([np.bincount(labels, weights=coordinates[:, 0]), np.bincount(labels, weights=coordinates[:, 1])])
-        cnt = np.bincount(labels)
-        cnt = np.where(cnt == 0, 1, cnt)
-        
-        return np.unique((centroids / cnt).astype('int64').T, axis=0)
+        centroids = []
+        for cnt in contours:
+            M = cv.moments(cnt)
+            cx, cy = 0, 0
+            if M["m00"] != 0:
+                cx = M["m01"] / M["m00"]
+                cy = M["m10"] / M["m00"]
+            centroids.append((cx, cy))
 
-        # contours = cv.findContours(
-        #     255 - img_blur_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
-        # )[0]
-        # centroids = []
-
-        # for cnt in contours:
-        #     M = cv.moments(cnt)
-        #     cx, cy = 0, 0
-        #     if M["m00"] != 0:
-        #         cx = M["m01"] / M["m00"]
-        #         cy = M["m10"] / M["m00"]
-        #     centroids.append((cx, cy))
-
-        # return np.unique(np.array(centroids, dtype=np.int64), axis=0)
+        return np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
     @staticmethod
     def calc_invariant(points, invariant):
@@ -349,10 +350,6 @@ if __name__ == "__main__":
     files = list(Path(IMG_DIR).glob("*.png"))
 
     ir.load_hash_table()
-    # for idx, f in enumerate(files):
-    #     feats = ir.calculate_features(imread(f.name, mode=0))
 
-    #     for feat in feats:
-    #         ir.register(idx, *feat)
-
-    print(ir.query(imread(files[0].name, mode=0)))
+    for f in files:
+        print(ir.query(imread(f.name, mode=0)[500:1500, 200:1000]))
