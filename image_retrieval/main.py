@@ -125,15 +125,6 @@ class ImageRetriever:
 
         img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
 
-        # labels = cv.connectedComponents(255 - img_bin)[1]
-        # coordinates = np.argwhere(labels != -1)
-        # labels = labels.ravel()
-        # centroids = np.vstack([np.bincount(labels, weights=coordinates[:, 0]), np.bincount(labels, weights=coordinates[:, 1])])
-        # cnt = np.bincount(labels)
-        # cnt = np.where(cnt == 0, 1, cnt)
-        
-        # return np.unique((centroids / cnt).astype('int64').T, axis=0)
-
         contours, _ = cv.findContours(
             255 - img_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
         )
