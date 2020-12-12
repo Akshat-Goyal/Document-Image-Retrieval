@@ -140,6 +140,7 @@ class ImageRetriever:
 
         img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
 
+        # # step 3: Calculating Centroids
         # labels = cv.connectedComponents(255 - img_bin)[1]
         # coordinates = np.argwhere(labels != -1)
         # labels = labels.ravel()
@@ -147,7 +148,7 @@ class ImageRetriever:
         # cnt = np.bincount(labels)
         # cnt = np.where(cnt == 0, 1, cnt)
         
-        # return np.unique((centroids / cnt).astype('int64').T, axis=0)
+        # return img_bin, np.unique((centroids / cnt).astype('int64').T, axis=0)
 
         contours, _ = cv.findContours(
             255 - img_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
@@ -162,7 +163,7 @@ class ImageRetriever:
                 cy = M["m10"] / M["m00"]
             centroids.append((cx, cy))
 
-        return np.unique(np.array(centroids, dtype=np.int64), axis=0)
+        return img_bin, np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
     @staticmethod
     def calc_invariant(points, invariant):
@@ -191,7 +192,7 @@ class ImageRetriever:
         """
         calculate features for an image in the database
         """
-        feature_point = ImageRetriever.calculate_feature_point(img)
+        feature_point = ImageRetriever.calculate_feature_point(img)[1]
         n, m = (
             min(self.n, feature_point.shape[0] - 1),
             min(self.m, feature_point.shape[0] - 1),
@@ -287,7 +288,7 @@ class ImageRetriever:
         """
         query the db for document images similar to the one provided
         """
-        feature_point = ImageRetriever.calculate_feature_point(img)
+        feature_point = ImageRetriever.calculate_feature_point(img)[1]
         n, m = (
             min(self.n, feature_point.shape[0] - 1),
             min(self.m, feature_point.shape[0] - 1),
