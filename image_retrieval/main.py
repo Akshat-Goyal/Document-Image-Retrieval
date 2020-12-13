@@ -72,12 +72,7 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
 
 
 @log_all_methods(
-    ignore=[
-        "register",
-        "calc_invariant",
-        "calc_index",
-        "calc_votes",
-    ]
+    ignore=["register", "calc_invariant", "calc_index", "calc_votes", "quantizer"]
 )
 class ImageRetriever:
     def __init__(
@@ -97,6 +92,16 @@ class ImageRetriever:
         self.m = m
         self.k = k
         self.parallel_count = parallel_count
+
+        self.parallel = parallel_count > 1
+
+    @staticmethod
+    def quantizer(ratio):
+        return ratio
+        levels = [1.563, 0.97, 0.69, 0.472, 0.302, 0.157, 0.049, 0]
+        for l in levels:
+            if ratio > l:
+                return l
 
     @staticmethod
     def calc_index(r, K, size):
@@ -150,20 +155,22 @@ class ImageRetriever:
             if invariant == Invariants.AFFINE:
                 for mask in combinations(np.arange(m), 4):
                     p = points[list(mask)]
-                    r.append(calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2]))
+                    ratio = calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2])
+                    r.append(ImageRetriever.quantizer(ratio))
             elif invariant == Invariants.CROSS_RATIO:
                 for mask in combinations(np.arange(m), 5):
                     p = points[list(mask)]
-                    r.append(
+                    ratio = (
                         calc_area(p[0], p[1], p[2])
                         * calc_area(p[0], p[3], p[4])
                         / (calc_area(p[0], p[1], p[3]) * calc_area(p[0], p[2], p[4]))
                     )
+                    r.append(ImageRetriever.quantizer(ratio))
             return np.array(r)
         except:
             return np.array(r)
 
-    def calculate_features(self, img, parallel=True):
+    def calculate_features(self, img):
         """
         calculate features for an image in the database
         """
@@ -177,7 +184,7 @@ class ImageRetriever:
 
         flatten = lambda x, y: x + y
 
-        if parallel:
+        if self.parallel:
             pool = Pool(self.parallel_count)
             return reduce(
                 flatten,
@@ -259,7 +266,7 @@ class ImageRetriever:
         doc_ids.sort(reverse=True)
         return np.array(doc_ids)
 
-    def query(self, img, parallel=True):
+    def query(self, img):
         """
         query the db for document images similar to the one provided
         """
@@ -273,7 +280,7 @@ class ImageRetriever:
 
         flatten = lambda x, y: x + y
 
-        if parallel:
+        if self.parallel:
             ps = np.array_split(feature_point, self.parallel_count)
             args = []
             for i in range(self.parallel_count):
