@@ -6,10 +6,11 @@ from functools import reduce
 import logging
 from itertools import combinations
 from os.path import exists
-import pickle
 from pathlib import Path
 from multiprocessing import Manager, cpu_count, Pool
 
+import sqlite3
+import math
 import cv2 as cv
 import numpy as np
 from rich.logging import RichHandler
@@ -41,7 +42,7 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
     return ret
 
 
-def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_size):
+def parallelized_query(feature_point, ps, n, m, k, invariant, max_size, filename):
     """
     parallelized query
     """
@@ -60,13 +61,14 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
                 r = ImageRetriever.calc_invariant(mpoints, invariant)
                 hindex = ImageRetriever.calc_index(r, k, max_size)
 
-                if hindex not in hash_table:
-                    continue
-                # voting
-                for item in hash_table[hindex]:
-                    # condition 1
-                    if np.allclose(r, item[2]):
-                        ret.append([item[0], tuple(p), tuple(item[1])])
+                with sqlite3.connect(filename) as conn:
+                    cur = conn.cursor()
+                    query = f"SELECT * FROM hash_table WHERE hindex={hindex};"
+                    # voting
+                    for row in cur.execute(query):
+                        # condition 1
+                        if np.allclose(r, np.array(row[4:])):
+                            ret.append([row[1], tuple(p), (row[2], row[3])])
 
     return ret
 
@@ -89,14 +91,67 @@ class ImageRetriever:
         k=25,
         parallel_count=cpu_count(),
     ):
-        self.manager = Manager()
-        self.hash_table = self.manager.dict()
         self.max_size = max_size
         self.invariant = invariant
         self.n = n
         self.m = m
         self.k = k
         self.parallel_count = parallel_count
+        self.conn = None
+        self.cur = None
+        self.connect_db()
+
+    @staticmethod
+    def nCr(n,r):
+        f = math.factorial
+        return f(n) // f(r) // f(n-r)
+
+    def create_db(self, filename):
+        with sqlite3.connect(filename) as conn:
+            cur, points = conn.cursor(), 0
+            if self.invariant == Invariants.AFFINE:
+                points = ImageRetriever.nCr(self.m, 4)
+            elif self.invariant == Invariants.CROSS_RATIO:
+                points = ImageRetriever.nCr(self.m, 5)
+            query = "CREATE TABLE hash_table (hindex INT, doc_id INT, px INT, py INT"
+            for i in range(points):
+                query += ", r" + str(i) + " FLOAT"
+            query += ");"
+            cur.execute(query)
+
+    def connect_db(self, filename="hash_table.db"):
+        if not exists(filename):
+            self.create_db(filename)
+            self.conn = sqlite3.connect(filename)
+            self.cur = self.conn.cursor()
+            self.preprocess()
+        else:
+            self.conn = sqlite3.connect(filename)
+            self.cur = self.conn.cursor()
+
+    def preprocess(self):
+        """
+        calculates feature points for each image
+        """
+        files = list(Path(IMG_DIR).glob("*.png"))
+        for idx, f in enumerate(files):
+            self.register_db(idx, self.calculate_features(imread(f.name, mode=0)))
+
+    def register_db(self, doc_id, feats):
+        """
+        register features in db
+        """
+        if len(feats) == 0: return
+        values = []
+        for feat in feats:
+            p, r = feat
+            values.append((ImageRetriever.calc_index(r, self.k, self.max_size), doc_id, int(p[0]), int(p[1]), *r))
+        query = "INSERT INTO hash_table VALUES (?,?,?,?"
+        for _ in range(len(feats[0][1])):
+            query += ",?"
+        query += ");"
+        self.cur.executemany(query, values)
+        self.conn.commit()
 
     @staticmethod
     def calc_index(r, K, size):
@@ -222,41 +277,6 @@ class ImageRetriever:
             )
         return reduce(flatten, features)
 
-    def register(self, doc_id, point_id, r):
-        """
-        register features to the hash table
-        """
-        hindex = ImageRetriever.calc_index(r, self.k, self.max_size)
-
-        if hindex in self.hash_table:
-            self.hash_table[hindex].append([doc_id, point_id, r])
-        else:
-            self.hash_table[hindex] = [[doc_id, point_id, r]]
-
-        return hindex
-
-    def save_hash_table(self, filename="hash_table.pickle"):
-        """
-        saves hash table to file
-        """
-        with open(filename, "wb") as f:
-            pickle.dump(dict(self.hash_table), f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def load_hash_table(self, filename="hash_table.pickle"):
-        """
-        loads hash table
-        """
-        if not exists(filename):
-            files = list(Path(IMG_DIR).glob("*.png"))
-            for idx, f in enumerate(files):
-                feats = self.calculate_features(imread(f.name, mode=0))
-                for feat in feats:
-                    self.register(idx, *feat)
-            self.save_hash_table(filename)
-        else:
-            with open(filename, "rb") as f:
-                self.hash_table = self.manager.dict(pickle.load(f))
-
     @staticmethod
     def calc_votes(votes):
         """
@@ -284,7 +304,7 @@ class ImageRetriever:
         doc_ids.sort(reverse=True)
         return np.array(doc_ids)
 
-    def query(self, img, parallel=True):
+    def query(self, img, filename="hash_table.db", parallel=True):
         """
         query the db for document images similar to the one provided
         """
@@ -304,7 +324,6 @@ class ImageRetriever:
             for i in range(self.parallel_count):
                 args.append(
                     (
-                        self.hash_table,
                         feature_point,
                         ps[i],
                         n,
@@ -312,10 +331,11 @@ class ImageRetriever:
                         self.k,
                         self.invariant,
                         self.max_size,
+                        filename,
                     )
                 )
 
-            pool = self.manager.Pool(self.parallel_count)
+            pool = Pool(self.parallel_count)
             votes = reduce(
                 flatten,
                 pool.starmap(parallelized_query, args),
@@ -325,7 +345,6 @@ class ImageRetriever:
             for p in feature_point:
                 votes.append(
                     parallelized_query(
-                        self.hash_table,
                         feature_point,
                         np.array([p]),
                         n,
@@ -333,6 +352,7 @@ class ImageRetriever:
                         self.k,
                         self.invariant,
                         self.max_size,
+                        filename,
                     )
                 )
             votes = reduce(flatten, votes)
@@ -350,7 +370,4 @@ if __name__ == "__main__":
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    ir.load_hash_table()
-
-    for f in files:
-        print(ir.query(imread(f.name, mode=0)[500:1500, 200:1000]))
+    print(ir.query(imread(files[0].name, mode=0)[500:1500, 200:1000]))
