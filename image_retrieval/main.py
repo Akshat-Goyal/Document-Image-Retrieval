@@ -41,7 +41,6 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
 
     return ret
 
-
 def parallelized_query(feature_point, ps, n, m, k, invariant, max_size, filename):
     """
     parallelized query
@@ -97,8 +96,6 @@ class ImageRetriever:
         self.m = m
         self.k = k
         self.parallel_count = parallel_count
-        self.conn = None
-        self.cur = None
         self.connect_db()
 
     @staticmethod
@@ -107,37 +104,36 @@ class ImageRetriever:
         return f(n) // f(r) // f(n-r)
 
     def create_db(self, filename):
+        points = 0
+        if self.invariant == Invariants.AFFINE:
+            points = ImageRetriever.nCr(self.m, 4)
+        elif self.invariant == Invariants.CROSS_RATIO:
+            points = ImageRetriever.nCr(self.m, 5)
+        query = "CREATE TABLE hash_table (hindex INT, doc_id INT, px INT, py INT"
+        for i in range(points):
+            query += ", r" + str(i) + " FLOAT"
+        query += ");"
         with sqlite3.connect(filename) as conn:
-            cur, points = conn.cursor(), 0
-            if self.invariant == Invariants.AFFINE:
-                points = ImageRetriever.nCr(self.m, 4)
-            elif self.invariant == Invariants.CROSS_RATIO:
-                points = ImageRetriever.nCr(self.m, 5)
-            query = "CREATE TABLE hash_table (hindex INT, doc_id INT, px INT, py INT"
-            for i in range(points):
-                query += ", r" + str(i) + " FLOAT"
-            query += ");"
+            cur = conn.cursor()
             cur.execute(query)
+            query = "CREATE INDEX hash_index on hash_table(hindex);"
+            cur.execute(query)
+            conn.commit()
 
     def connect_db(self, filename="hash_table.db"):
         if not exists(filename):
             self.create_db(filename)
-            self.conn = sqlite3.connect(filename)
-            self.cur = self.conn.cursor()
-            self.preprocess()
-        else:
-            self.conn = sqlite3.connect(filename)
-            self.cur = self.conn.cursor()
+            self.preprocess(filename)
 
-    def preprocess(self):
+    def preprocess(self, filename):
         """
         calculates feature points for each image
         """
         files = list(Path(IMG_DIR).glob("*.png"))
         for idx, f in enumerate(files):
-            self.register_db(idx, self.calculate_features(imread(f.name, mode=0)))
+            self.register_db(idx, self.calculate_features(imread(f.name, mode=0)), filename)
 
-    def register_db(self, doc_id, feats):
+    def register_db(self, doc_id, feats, filename):
         """
         register features in db
         """
@@ -150,8 +146,10 @@ class ImageRetriever:
         for _ in range(len(feats[0][1])):
             query += ",?"
         query += ");"
-        self.cur.executemany(query, values)
-        self.conn.commit()
+        with sqlite3.connect(filename) as conn:
+            cur = conn.cursor()
+            cur.executemany(query, values)
+            conn.commit()
 
     @staticmethod
     def calc_index(r, K, size):
@@ -370,4 +368,4 @@ if __name__ == "__main__":
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    print(ir.query(imread(files[0].name, mode=0)[500:1500, 200:1000]))
+    # print(ir.query(imread(files[0].name, mode=0)[500:1000, 00:1000]))
