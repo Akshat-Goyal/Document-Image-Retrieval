@@ -41,11 +41,14 @@ def parallelized_calc_invariant(feature_point, p, n, m, invariant):
 
     return ret
 
+
 def parallelized_query(feature_point, ps, n, m, k, invariant, max_size, filename):
     """
     parallelized query
     """
     ret = []
+    conn = sqlite3.connect(filename)
+    cur = conn.cursor()
 
     for p in ps:
         npoints = nearest_points(feature_point, p, n)
@@ -60,15 +63,14 @@ def parallelized_query(feature_point, ps, n, m, k, invariant, max_size, filename
                 r = ImageRetriever.calc_invariant(mpoints, invariant)
                 hindex = ImageRetriever.calc_index(r, k, max_size)
 
-                with sqlite3.connect(filename) as conn:
-                    cur = conn.cursor()
-                    query = f"SELECT * FROM hash_table WHERE hindex={hindex};"
-                    # voting
-                    for row in cur.execute(query):
-                        # condition 1
-                        if np.allclose(r, np.array(row[4:])):
-                            ret.append([row[1], tuple(p), (row[2], row[3])])
+                query = f"SELECT * FROM hash_table WHERE hindex={hindex};"
+                # voting
+                for row in cur.execute(query):
+                    # condition 1
+                    if np.allclose(r, np.array(row[4:])):
+                        ret.append([row[1], tuple(p), (row[2], row[3])])
 
+    conn.close()
     return ret
 
 
@@ -99,9 +101,9 @@ class ImageRetriever:
         self.connect_db()
 
     @staticmethod
-    def nCr(n,r):
+    def nCr(n, r):
         f = math.factorial
-        return f(n) // f(r) // f(n-r)
+        return f(n) // f(r) // f(n - r)
 
     def create_db(self, filename):
         points = 0
@@ -131,17 +133,28 @@ class ImageRetriever:
         """
         files = list(Path(IMG_DIR).glob("*.png"))
         for idx, f in enumerate(files):
-            self.register_db(idx, self.calculate_features(imread(f.name, mode=0)), filename)
+            self.register_db(
+                idx, self.calculate_features(imread(f.name, mode=0)), filename
+            )
 
     def register_db(self, doc_id, feats, filename):
         """
         register features in db
         """
-        if len(feats) == 0: return
+        if len(feats) == 0:
+            return
         values = []
         for feat in feats:
             p, r = feat
-            values.append((ImageRetriever.calc_index(r, self.k, self.max_size), doc_id, int(p[0]), int(p[1]), *r))
+            values.append(
+                (
+                    ImageRetriever.calc_index(r, self.k, self.max_size),
+                    doc_id,
+                    int(p[0]),
+                    int(p[1]),
+                    *r,
+                )
+            )
         query = "INSERT INTO hash_table VALUES (?,?,?,?"
         for _ in range(len(feats[0][1])):
             query += ",?"
@@ -200,7 +213,7 @@ class ImageRetriever:
         # centroids = np.vstack([np.bincount(labels, weights=coordinates[:, 0]), np.bincount(labels, weights=coordinates[:, 1])])
         # cnt = np.bincount(labels)
         # cnt = np.where(cnt == 0, 1, cnt)
-        
+
         # return img_bin, np.unique((centroids / cnt).astype('int64').T, axis=0)
 
         contours, _ = cv.findContours(
@@ -214,7 +227,7 @@ class ImageRetriever:
             if M["m00"] != 0:
                 cx = M["m01"] / M["m00"]
                 cy = M["m10"] / M["m00"]
-            centroids.append((cx, cy))
+                centroids.append((cx, cy))
 
         return img_bin, np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
