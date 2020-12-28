@@ -2,6 +2,7 @@
 Image retrieval code
 """
 
+import time
 from functools import reduce
 import logging
 from itertools import combinations
@@ -71,9 +72,9 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
     return ret
 
 
-@log_all_methods(
-    ignore=["register", "calc_invariant", "calc_index", "calc_votes", "quantizer"]
-)
+# @log_all_methods(
+#     ignore=["register", "calc_invariant", "calc_index", "calc_votes", "quantizer"]
+# )
 class ImageRetriever:
     def __init__(
         self,
@@ -185,17 +186,17 @@ class ImageRetriever:
         flatten = lambda x, y: x + y
 
         if self.parallel:
-            pool = Pool(self.parallel_count)
-            return reduce(
-                flatten,
-                pool.starmap(
-                    parallelized_calc_invariant,
-                    map(
-                        lambda p: (feature_point, p, n, m, self.invariant),
-                        feature_point,
+            with Pool(self.parallel_count) as pool:
+                return reduce(
+                    flatten,
+                    pool.starmap(
+                        parallelized_calc_invariant,
+                        map(
+                            lambda p: (feature_point, p, n, m, self.invariant),
+                            feature_point,
+                        ),
                     ),
-                ),
-            )
+                )
 
         features = []
         for p in feature_point:
@@ -297,11 +298,11 @@ class ImageRetriever:
                     )
                 )
 
-            pool = self.manager.Pool(self.parallel_count)
-            votes = reduce(
-                flatten,
-                pool.starmap(parallelized_query, args),
-            )
+            with self.manager.Pool(self.parallel_count) as pool:
+                votes = reduce(
+                    flatten,
+                    pool.starmap(parallelized_query, args),
+                )
         else:
             votes = []
             for p in feature_point:
@@ -334,5 +335,19 @@ if __name__ == "__main__":
 
     ir.load_hash_table()
 
-    for f in files:
-        print(ir.query(imread(f.name, mode=0)[500:1500, 200:1000]))
+    times = []
+    ranks = []
+
+    for i, f in enumerate(files[:10]):
+        st = time.time()
+        ret = ir.query(imread(f.name, mode=0))[:, 1]
+        en = time.time()
+        times.append(en - st)
+        print(en - st)
+
+        try:
+            ranks.append(np.where(ret == i)[0][0])
+        except:
+            ranks.append(-1)
+
+    print({"times": times, "ranks": ranks})
