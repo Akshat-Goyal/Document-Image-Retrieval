@@ -2,7 +2,7 @@
 Image retrieval code
 """
 
-import time
+from collections import Counter
 from functools import reduce
 import logging
 from itertools import combinations
@@ -66,7 +66,7 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
                 # voting
                 for item in hash_table[hindex]:
                     # condition 1
-                    if np.allclose(r, item[2]):
+                    if Counter(r) == Counter(item[2]):
                         ret.append([item[0], tuple(p), tuple(item[1])])
 
     return ret
@@ -98,11 +98,11 @@ class ImageRetriever:
 
     @staticmethod
     def quantizer(ratio):
-        return ratio
-        levels = [1.563, 0.97, 0.69, 0.472, 0.302, 0.157, 0.049, 0]
-        for l in levels:
+        # return ratio
+        levels = [2.378, 1.136, 0.923, 0.693, 0.508, 0.36, 0.23, 0.118, 0.036, 0]
+        for i, l in enumerate(levels):
             if ratio > l:
-                return l
+                return i
 
     @staticmethod
     def calc_index(r, K, size):
@@ -339,15 +339,4 @@ if __name__ == "__main__":
     ranks = []
 
     for i, f in enumerate(files[:10]):
-        st = time.time()
-        ret = ir.query(imread(f.name, mode=0))[:, 1]
-        en = time.time()
-        times.append(en - st)
-        print(en - st)
-
-        try:
-            ranks.append(np.where(ret == i)[0][0])
-        except:
-            ranks.append(-1)
-
-    print({"times": times, "ranks": ranks})
+        print(ir.query(imread(f.name, mode=0)))
