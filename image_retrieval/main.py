@@ -277,7 +277,7 @@ class ImageRetriever:
             min(self.m, feature_point.shape[0] - 1),
         )
         if n < 0 or m < 0:
-            return []
+            return np.array([])
 
         flatten = lambda x, y: x + y
 
