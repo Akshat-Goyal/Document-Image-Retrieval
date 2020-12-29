@@ -142,7 +142,7 @@ class ImageRetriever:
             if M["m00"] != 0:
                 cx = M["m01"] / M["m00"]
                 cy = M["m10"] / M["m00"]
-            centroids.append((cx, cy))
+                centroids.append((cx, cy))
 
         return np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
@@ -277,7 +277,7 @@ class ImageRetriever:
             min(self.m, feature_point.shape[0] - 1),
         )
         if n < 0 or m < 0:
-            return []
+            return np.array([])
 
         flatten = lambda x, y: x + y
 
