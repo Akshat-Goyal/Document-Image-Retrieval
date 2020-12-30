@@ -136,7 +136,9 @@ def log_call(f, log_entry=True, log_exit=True):
                     indent_offset,
                     f.__module__,
                     f.__qualname__,
-                    fmt_print(stringify_call_params(*args, **kwargs),),
+                    fmt_print(
+                        stringify_call_params(*args, **kwargs),
+                    ),
                 )
 
             st = time.time()
@@ -171,7 +173,9 @@ def log_all_methods(log_entry=True, log_exit=True, ignore=[]):
             _func = getattr(cls, attr)
             if callable(_func) and attr not in ignore:
                 setattr(
-                    cls, attr, log_call(_func, log_entry, log_exit),
+                    cls,
+                    attr,
+                    log_call(_func, log_entry, log_exit),
                 )
         return cls
 
@@ -193,3 +197,17 @@ def log_all_in_module(module, log_entry=True, log_exit=True):
             setattr(module, attr, log_all_methods(log_entry, log_exit)(_func))
         elif callable(_func):
             setattr(module, attr, log_call(_func, log_entry, log_exit))
+
+
+def prespectiveChange(img):
+    """
+    Returns prespective transformed image
+    """
+    rows, cols = img.shape
+    pts1 = np.float32([[0, 0], [rows - 1, 0], [0, cols - 1], [rows - 1, cols - 1]])
+    pts2 = np.float32(
+        [[156, 65], [rows - 368, 52], [28, cols - 387], [rows - 389, cols - 390]]
+    )
+    M = cv.getPerspectiveTransform(pts1, pts2)
+    dst = cv.warpPerspective(img, M, (cols, rows))
+    return dst
