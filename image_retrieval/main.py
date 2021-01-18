@@ -2,6 +2,8 @@
 Image retrieval code
 """
 
+# TODO: latest code seems to be using affine?
+
 import time
 from functools import reduce
 import logging
@@ -72,14 +74,21 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
     return ret
 
 
-# @log_all_methods(
-#     ignore=["register", "calc_invariant", "calc_index", "calc_votes", "quantizer"]
-# )
+@log_all_methods(
+    ignore=[
+        "register",
+        "calc_invariant",
+        "calc_index",
+        "calc_votes",
+        "quantizer",
+        "get_word_contours",
+    ]
+)
 class ImageRetriever:
     def __init__(
         self,
         max_size=128 * 1e6,
-        invariant=Invariants.CROSS_RATIO,
+        invariant=Invariants.AFFINE,
         n=7,
         m=6,
         k=25,
@@ -119,30 +128,43 @@ class ImageRetriever:
         return ans
 
     @staticmethod
+    def get_word_contours(doc_area: float, start: int, contours, hier, points):
+        idx = start
+        while idx >= 0:
+            M = cv.moments(contours[idx])
+
+            if M["m00"] < 5:
+                idx = hier[idx][0]
+                continue
+            if M["m00"] < doc_area / 10:
+                points.append((int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])))
+            else:
+                ImageRetriever.get_word_contours(
+                    doc_area, hier[idx][2], contours, hier, points
+                )
+
+            idx = hier[idx][0]
+
+    @staticmethod
     def calculate_feature_point(img: np.ndarray, k=5):
         """
         Calculates features for the given image
         """
         img = img.copy()
 
-        img_bin = cv.adaptiveThreshold(
-            img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+        bin_ = cv.adaptiveThreshold(
+            img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 101, 10
         )
 
-        img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
+        blur = cv.GaussianBlur(bin_, (7, 7), 0)
+        _, bin_ = cv.threshold(blur, 250, 255, cv.THRESH_BINARY)
 
-        contours, _ = cv.findContours(
-            255 - img_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
-        )
+        contours, heir = cv.findContours(bin_, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
         centroids = []
-        for cnt in contours:
-            M = cv.moments(cnt)
-            cx, cy = 0, 0
-            if M["m00"] != 0:
-                cx = M["m01"] / M["m00"]
-                cy = M["m10"] / M["m00"]
-            centroids.append((cx, cy))
+        ImageRetriever.get_word_contours(
+            img.shape[0] * img.shape[1], 0, contours, heir[0], centroids
+        )
 
         return np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
@@ -156,7 +178,8 @@ class ImageRetriever:
             if invariant == Invariants.AFFINE:
                 for mask in combinations(np.arange(m), 4):
                     p = points[list(mask)]
-                    ratio = calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2])
+                    s = max(0.0001, calc_area(p[0], p[1], p[2]))
+                    ratio = calc_area(p[0], p[2], p[3]) / s
                     r.append(ImageRetriever.quantizer(ratio))
             elif invariant == Invariants.CROSS_RATIO:
                 for mask in combinations(np.arange(m), 5):
