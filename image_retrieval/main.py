@@ -143,6 +143,8 @@ class ImageRetriever:
                     doc_area, hier[idx][2], contours, hier, points
                 )
 
+            # take a look at this to understand what's happening here
+            # https://docs.opencv.org/master/d9/d8b/tutorial_py_contours_hierarchy.html
             idx = hier[idx][0]
 
     @staticmethod
