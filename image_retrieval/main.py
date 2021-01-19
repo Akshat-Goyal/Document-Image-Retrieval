@@ -16,6 +16,7 @@ from multiprocessing import Manager, cpu_count, Pool
 import cv2 as cv
 import numpy as np
 from rich.logging import RichHandler
+from rich.progress import track
 
 from image_retrieval.helpers import (
     Invariants,
@@ -23,7 +24,8 @@ from image_retrieval.helpers import (
     calc_area,
     imread,
     log_all_methods,
-    prespectiveChange
+    prespectiveChange,
+    alterImage
 )
 from image_retrieval.config import IMG_DIR
 from image_retrieval.disc import disc
@@ -353,40 +355,42 @@ class ImageRetriever:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(message)s",
-        handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
-    )
+    # logging.basicConfig(
+    #     level=logging.DEBUG,
+    #     format="%(message)s",
+    #     handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
+    # )
 
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    # ir.load_hash_table()
-    for idx, f in enumerate(files):
-        print(f.name)
-        feats = ir.calculate_features(imread(f.name, mode=0))
+    ir.load_hash_table()
+    # for idx, f in enumerate(track(files)):
+    #     feats = ir.calculate_features(imread(f.name, mode=0))
 
-        for feat in feats:
-            ir.register(idx, *feat)
+    #     for feat in feats:
+    #         ir.register(idx, *feat)
     # ir.save_hash_table()
 
     times = []
     ranks = []
 
-    for i, f in enumerate(files[:10]):
+    for i, f in enumerate(files[:30]):
         st = time.time()
         print(f.name)
-        ret = ir.query(imread(f.name, mode=0))
+        cv.imwrite('rotated-'+f.name,alterImage(imread(f.name, mode=0), 90))
+        ret = ir.query(alterImage(imread(f.name, mode=0), 90))
         print(ret)
-        ret = ret[:,1]
         en = time.time()
         times.append(en - st)
         print(en - st)
 
         try:
+            ret = ret[:,1]
             ranks.append(np.where(ret == i)[0][0])
         except:
             ranks.append(-1)
 
     print({"times": times, "ranks": ranks})
+    x = np.array(ranks)
+    print(sum(x==0)/len(x))

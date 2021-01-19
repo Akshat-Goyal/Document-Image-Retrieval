@@ -203,8 +203,16 @@ def prespectiveChange(img):
     rows, cols = img.shape
     pts1 = np.float32([[0, 0], [rows - 1, 0], [0, cols - 1], [rows - 1, cols - 1]])
     pts2 = np.float32(
-        [[56, 65], [rows - 68, 52], [28, cols - 87], [rows - 89, cols - 90]]
+        [[56, 165], [rows - 168, 52], [28, cols - 187], [rows - 189, cols - 90]]
     )
     M = cv.getPerspectiveTransform(pts1, pts2)
     dst = cv.warpPerspective(img, M, (cols, rows))
     return dst
+
+
+def alterImage(img, angle=30, scale=1.0):
+    (h, w) = img.shape
+    center = (w / 2, h / 2)
+    M = cv.getRotationMatrix2D(center, angle, scale)
+    rotated = cv.warpAffine(img, M, (h, w))
+    return rotated
