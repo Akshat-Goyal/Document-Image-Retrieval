@@ -25,9 +25,11 @@ from image_retrieval.helpers import (
     log_all_methods,
 )
 from image_retrieval.config import IMG_DIR
+from image_retrieval.disc import disc
 from image_retrieval import global_vars
 
 global_vars.initialize()
+d = disc()
 
 
 def parallelized_calc_invariant(feature_point, p, n, m, invariant):
@@ -102,12 +104,13 @@ class ImageRetriever:
         self.m = m
         self.k = k
         self.parallel_count = parallel_count
+        self.disc = disc()
 
         self.parallel = parallel_count > 1
 
     @staticmethod
     def quantizer(ratio):
-        return ratio
+        return d.getdisc(ratio)
         levels = [1.563, 0.97, 0.69, 0.472, 0.302, 0.157, 0.049, 0]
         for l in levels:
             if ratio > l:
@@ -358,14 +361,24 @@ if __name__ == "__main__":
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
-    ir.load_hash_table()
+    # ir.load_hash_table()
+    for idx, f in enumerate(files):
+        print(f.name)
+        feats = ir.calculate_features(imread(f.name, mode=0))
+
+        for feat in feats:
+            ir.register(idx, *feat)
+    # ir.save_hash_table()
 
     times = []
     ranks = []
 
     for i, f in enumerate(files[:10]):
         st = time.time()
-        ret = ir.query(imread(f.name, mode=0))[:, 1]
+        print(f.name)
+        ret = ir.query(imread(f.name, mode=0))
+        print(ret)
+        ret = ret[:,1]
         en = time.time()
         times.append(en - st)
         print(en - st)
