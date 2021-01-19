@@ -23,6 +23,7 @@ from image_retrieval.helpers import (
     calc_area,
     imread,
     log_all_methods,
+    prespectiveChange
 )
 from image_retrieval.config import IMG_DIR
 from image_retrieval.disc import disc
