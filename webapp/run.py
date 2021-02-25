@@ -3,4 +3,4 @@ from webapp.app.route import routes
 
 app.register_blueprint(routes)
 
-app.run(debug=True)
+app.run(host="0.0.0.0", debug=True)

@@ -1,3 +1,4 @@
+import base64
 import io
 from pathlib import Path
 
@@ -13,6 +14,7 @@ ir = ImageRetriever()
 ir.load_hash_table(filename="hash_table.pickle")
 
 routes = Blueprint("routes", __name__)
+files = list(Path(IMG_DIR).glob("*.png"))
 
 
 @routes.route("/")
@@ -28,19 +30,11 @@ def searchUpload():
     """
     Queries for nearest neighbors
     """
-    print(request.files["file-0"])
     f = request.files["file-0"]
 
     img = Image.open(io.BytesIO(f.stream.read()))
     img = np.array(img).astype(np.uint8)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    ret = ir.query(img)
-    images = []
-    votes = []
-    files = list(Path(IMG_DIR).glob("*.png"))
-    for i in ret:
-        images.append(files[i[1]].name)
-        votes.append(str(i[0]))
 
     if img is None:
         print("Error, couldn't open file")
@@ -48,11 +42,18 @@ def searchUpload():
 
     print(f"Received file. Dimen: {img.shape}")
 
-    ret = jsonify(
-        images=list(images),
-        votes=list(votes),
-    )
-    return ret
+    ret = ir.query(img)
+    images = []
+    votes = []
+
+    for i in ret:
+        images.append(files[i[1]].name)
+        votes.append(str(i[0]))
+
+    ret = {"images": images, "votes": votes}
+    print(ret)
+
+    return jsonify(ret)
 
 
 @routes.route("/static/image/<path:filename>")

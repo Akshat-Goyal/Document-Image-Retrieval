@@ -2,6 +2,9 @@
 Image retrieval code
 """
 
+# TODO: latest code seems to be using affine?
+
+import time
 from functools import reduce
 import logging
 from itertools import combinations
@@ -13,6 +16,7 @@ from multiprocessing import Manager, cpu_count, Pool
 import cv2 as cv
 import numpy as np
 from rich.logging import RichHandler
+from rich.progress import track
 
 from image_retrieval.helpers import (
     Invariants,
@@ -20,11 +24,15 @@ from image_retrieval.helpers import (
     calc_area,
     imread,
     log_all_methods,
+    prespectiveChange,
+    alterImage
 )
 from image_retrieval.config import IMG_DIR
+from image_retrieval.disc import disc
 from image_retrieval import global_vars
 
 global_vars.initialize()
+d = disc()
 
 
 def parallelized_calc_invariant(feature_point, p, n, m, invariant):
@@ -77,13 +85,15 @@ def parallelized_query(hash_table, feature_point, ps, n, m, k, invariant, max_si
         "calc_invariant",
         "calc_index",
         "calc_votes",
+        "quantizer",
+        "get_word_contours",
     ]
 )
 class ImageRetriever:
     def __init__(
         self,
         max_size=128 * 1e6,
-        invariant=Invariants.CROSS_RATIO,
+        invariant=Invariants.AFFINE,
         n=7,
         m=6,
         k=25,
@@ -97,6 +107,17 @@ class ImageRetriever:
         self.m = m
         self.k = k
         self.parallel_count = parallel_count
+        self.disc = disc()
+
+        self.parallel = parallel_count > 1
+
+    @staticmethod
+    def quantizer(ratio):
+        return d.getdisc(ratio)
+        levels = [1.563, 0.97, 0.69, 0.472, 0.302, 0.157, 0.049, 0]
+        for l in levels:
+            if ratio > l:
+                return l
 
     @staticmethod
     def calc_index(r, K, size):
@@ -113,45 +134,45 @@ class ImageRetriever:
         return ans
 
     @staticmethod
-    def calculate_feature_point(img: np.ndarray):
+    def get_word_contours(doc_area: float, start: int, contours, hier, points):
+        idx = start
+        while idx >= 0:
+            M = cv.moments(contours[idx])
+
+            if M["m00"] < 5:
+                idx = hier[idx][0]
+                continue
+            if M["m00"] < doc_area / 10:
+                points.append((int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])))
+            else:
+                ImageRetriever.get_word_contours(
+                    doc_area, hier[idx][2], contours, hier, points
+                )
+
+            # take a look at this to understand what's happening here
+            # https://docs.opencv.org/master/d9/d8b/tutorial_py_contours_hierarchy.html
+            idx = hier[idx][0]
+
+    @staticmethod
+    def calculate_feature_point(img: np.ndarray, k=5):
         """
         Calculates features for the given image
         """
         img = img.copy()
 
-        # step 1: adaptive thresholding of the input image
-        img_bin = cv.adaptiveThreshold(
-            img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
+        bin_ = cv.adaptiveThreshold(
+            img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 101, 10
         )
 
-        # step 2: Gaussian filtering with square root of mode of areas of connected components
-        _, labels = cv.connectedComponents(255 - img_bin)
-        _, areas = np.unique(labels, return_counts=True)
-        areas, cnt = np.unique(areas, return_counts=True)
+        blur = cv.GaussianBlur(bin_, (7, 7), 0)
+        _, bin_ = cv.threshold(blur, 250, 255, cv.THRESH_BINARY)
 
-        k = int(np.sqrt(areas[np.argmax(cnt)]))
-        # make k odd
-        k += k % 2 == 0
+        contours, heir = cv.findContours(bin_, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
-        img_bin = 255 - cv.dilate(255 - img_bin, np.ones((k, k)))
-        img_blur = cv.GaussianBlur(img_bin, (k, k), 0)
-
-        img_blur_bin = cv.adaptiveThreshold(
-            img_blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 10
-        )
-
-        contours = cv.findContours(
-            255 - img_blur_bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
-        )[0]
         centroids = []
-
-        for cnt in contours:
-            M = cv.moments(cnt)
-            cx, cy = 0, 0
-            if M["m00"] != 0:
-                cx = M["m01"] / M["m00"]
-                cy = M["m10"] / M["m00"]
-            centroids.append((cx, cy))
+        ImageRetriever.get_word_contours(
+            img.shape[0] * img.shape[1], 0, contours, heir[0], centroids
+        )
 
         return np.unique(np.array(centroids, dtype=np.int64), axis=0)
 
@@ -165,20 +186,23 @@ class ImageRetriever:
             if invariant == Invariants.AFFINE:
                 for mask in combinations(np.arange(m), 4):
                     p = points[list(mask)]
-                    r.append(calc_area(p[0], p[2], p[3]) / calc_area(p[0], p[1], p[2]))
+                    s = max(0.0001, calc_area(p[0], p[1], p[2]))
+                    ratio = calc_area(p[0], p[2], p[3]) / s
+                    r.append(ImageRetriever.quantizer(ratio))
             elif invariant == Invariants.CROSS_RATIO:
                 for mask in combinations(np.arange(m), 5):
                     p = points[list(mask)]
-                    r.append(
+                    ratio = (
                         calc_area(p[0], p[1], p[2])
                         * calc_area(p[0], p[3], p[4])
                         / (calc_area(p[0], p[1], p[3]) * calc_area(p[0], p[2], p[4]))
                     )
+                    r.append(ImageRetriever.quantizer(ratio))
             return np.array(r)
         except:
             return np.array(r)
 
-    def calculate_features(self, img, parallel=True):
+    def calculate_features(self, img):
         """
         calculate features for an image in the database
         """
@@ -192,18 +216,18 @@ class ImageRetriever:
 
         flatten = lambda x, y: x + y
 
-        if parallel:
-            pool = Pool(self.parallel_count)
-            return reduce(
-                flatten,
-                pool.starmap(
-                    parallelized_calc_invariant,
-                    map(
-                        lambda p: (feature_point, p, n, m, self.invariant),
-                        feature_point,
+        if self.parallel:
+            with Pool(self.parallel_count) as pool:
+                return reduce(
+                    flatten,
+                    pool.starmap(
+                        parallelized_calc_invariant,
+                        map(
+                            lambda p: (feature_point, p, n, m, self.invariant),
+                            feature_point,
+                        ),
                     ),
-                ),
-            )
+                )
 
         features = []
         for p in feature_point:
@@ -274,7 +298,7 @@ class ImageRetriever:
         doc_ids.sort(reverse=True)
         return np.array(doc_ids)
 
-    def query(self, img, parallel=True):
+    def query(self, img):
         """
         query the db for document images similar to the one provided
         """
@@ -284,11 +308,11 @@ class ImageRetriever:
             min(self.m, feature_point.shape[0] - 1),
         )
         if n < 0 or m < 0:
-            return []
+            return np.array([])
 
         flatten = lambda x, y: x + y
 
-        if parallel:
+        if self.parallel:
             ps = np.array_split(feature_point, self.parallel_count)
             args = []
             for i in range(self.parallel_count):
@@ -305,11 +329,11 @@ class ImageRetriever:
                     )
                 )
 
-            pool = self.manager.Pool(self.parallel_count)
-            votes = reduce(
-                flatten,
-                pool.starmap(parallelized_query, args),
-            )
+            with self.manager.Pool(self.parallel_count) as pool:
+                votes = reduce(
+                    flatten,
+                    pool.starmap(parallelized_query, args),
+                )
         else:
             votes = []
             for p in feature_point:
@@ -331,20 +355,42 @@ class ImageRetriever:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(message)s",
-        handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
-    )
+    # logging.basicConfig(
+    #     level=logging.DEBUG,
+    #     format="%(message)s",
+    #     handlers=[RichHandler(rich_tracebacks=True, show_time=False, show_path=False)],
+    # )
 
     ir = ImageRetriever()
     files = list(Path(IMG_DIR).glob("*.png"))
 
     ir.load_hash_table()
-    # for idx, f in enumerate(files):
+    # for idx, f in enumerate(track(files)):
     #     feats = ir.calculate_features(imread(f.name, mode=0))
 
     #     for feat in feats:
     #         ir.register(idx, *feat)
+    # ir.save_hash_table()
 
-    print(ir.query(imread(files[0].name, mode=0)))
+    times = []
+    ranks = []
+
+    for i, f in enumerate(files[:30]):
+        st = time.time()
+        print(f.name)
+        cv.imwrite('rotated-'+f.name,alterImage(imread(f.name, mode=0), 90))
+        ret = ir.query(alterImage(imread(f.name, mode=0), 90))
+        print(ret)
+        en = time.time()
+        times.append(en - st)
+        print(en - st)
+
+        try:
+            ret = ret[:,1]
+            ranks.append(np.where(ret == i)[0][0])
+        except:
+            ranks.append(-1)
+
+    print({"times": times, "ranks": ranks})
+    x = np.array(ranks)
+    print(sum(x==0)/len(x))
